@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Calendar,
   Clock,
@@ -105,43 +105,9 @@ interface Appointment {
 export default function SchoolAppointmentSystem() {
   const [activeModule, setActiveModule] = useState<"public" | "inquiry" | "admin">("public");
 
-  // Randevu Veritabanı
-  const [appointments, setAppointments] = useState<Appointment[]>([
-    {
-      id: "1",
-      trackingCode: "RND-84920",
-      date: "2026-11-05",
-      slot: "10:00 (1. Seans)",
-      visitorCount: 35,
-      city: "İstanbul",
-      district: "Bahçelievler",
-      institutionCode: "748921",
-      schoolName: "Kültür Ortaokulu",
-      schoolType: "Devlet Ortaokulu",
-      teacherName: "Ahmet Yılmaz",
-      phone: "05321112233",
-      email: "ahmet@meb.k12.tr",
-      status: "onaylandi",
-      createdAt: "2026-10-01 10:30"
-    },
-    {
-      id: "2",
-      trackingCode: "RND-91244",
-      date: "2026-11-05",
-      slot: "13:30 (2. Seans)",
-      visitorCount: 28,
-      city: "İstanbul",
-      district: "Bakırköy",
-      institutionCode: "745120",
-      schoolName: "Mehmet Akif Ortaokulu",
-      schoolType: "Devlet Ortaokulu",
-      teacherName: "Zeynep Kaya",
-      phone: "05439998877",
-      email: "zeynep@meb.k12.tr",
-      status: "beklemede",
-      createdAt: "2026-10-04 14:15"
-    }
-  ]);
+  // Randevu Veritabanı State'i
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [isDataLoading, setIsDataLoading] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -159,10 +125,12 @@ export default function SchoolAppointmentSystem() {
   });
 
   const [formSubmitted, setFormSubmitted] = useState<Appointment | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Randevu Sorgulama State'leri
   const [inquiryCode, setInquiryCode] = useState("");
   const [inquiryResult, setInquiryResult] = useState<Appointment | null | "not_found">(null);
+  const [isInquiring, setIsInquiring] = useState(false);
 
   // Admin & Yetki State'leri
   const [adminAuth, setAdminAuth] = useState(false);
@@ -179,6 +147,27 @@ export default function SchoolAppointmentSystem() {
   const [targetRejectId, setTargetRejectId] = useState<string | null>(null);
   const [isSendingMail, setIsSendingMail] = useState(false);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
+
+  // Veritabanından Randevuları Çekme Fonksiyonu
+  const fetchAppointments = async () => {
+    setIsDataLoading(true);
+    try {
+      const res = await fetch("/api/appointments");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setAppointments(data.data);
+      }
+    } catch (err) {
+      console.error("Veriler çekilemedi:", err);
+    } finally {
+      setIsDataLoading(false);
+    }
+  };
+
+  // Sayfa açıldığında randevuları veritabanından al
+  useEffect(() => {
+    fetchAppointments();
+  }, []);
 
   const handleAdminLogout = () => {
     setAdminAuth(false);
@@ -206,6 +195,7 @@ export default function SchoolAppointmentSystem() {
         setAdminAuth(true);
         setAdminRole(data.role);
         setAdminPassword("");
+        fetchAppointments(); // Giriş yapıldığında güncel listeyi al
       } else {
         setAuthError(data.error || "Hatalı şifre girdiniz.");
       }
@@ -216,18 +206,29 @@ export default function SchoolAppointmentSystem() {
     }
   };
 
-  const handleInquirySearch = (e: React.FormEvent) => {
+  // Veritabanından Anlık Sorgulama
+  const handleInquirySearch = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanQuery = inquiryCode.trim().toUpperCase();
     if (!cleanQuery) return;
 
-    const found = appointments.find(
-      (app) =>
-        app.trackingCode.toUpperCase() === cleanQuery ||
-        app.trackingCode.replace("RND-", "").toUpperCase() === cleanQuery
-    );
+    setIsInquiring(true);
+    setInquiryResult(null);
 
-    setInquiryResult(found || "not_found");
+    try {
+      const res = await fetch(`/api/inquiry?code=${encodeURIComponent(cleanQuery)}`);
+      const data = await res.json();
+
+      if (data.success && data.data) {
+        setInquiryResult(data.data);
+      } else {
+        setInquiryResult("not_found");
+      }
+    } catch (err) {
+      alert("Sorgulama sırasında bağlantı hatası oluştu.");
+    } finally {
+      setIsInquiring(false);
+    }
   };
 
   const dateRestriction = useMemo(() => {
@@ -260,7 +261,8 @@ export default function SchoolAppointmentSystem() {
       .map((a) => a.slot);
   }, [appointments, formData.date]);
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  // Yeni Randevuyu Doğrudan Veritabanına Yazma
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (dateRestriction?.isBlocked) {
       alert(dateRestriction.reason);
@@ -271,8 +273,9 @@ export default function SchoolAppointmentSystem() {
       return;
     }
 
-    const newAppointment: Appointment = {
-      id: Date.now().toString(),
+    setIsSubmitting(true);
+
+    const payload = {
       trackingCode: `RND-${Math.floor(10000 + Math.random() * 90000)}`,
       date: formData.date,
       slot: formData.slot,
@@ -284,15 +287,34 @@ export default function SchoolAppointmentSystem() {
       schoolType: formData.schoolType,
       teacherName: formData.teacherName.trim(),
       phone: formData.phone.trim(),
-      email: formData.email.trim(),
-      status: "beklemede",
-      createdAt: new Date().toISOString().slice(0, 16).replace("T", " ")
+      email: formData.email.trim()
     };
 
-    setAppointments((prev) => [newAppointment, ...prev]);
-    setFormSubmitted(newAppointment);
+    try {
+      const res = await fetch("/api/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        alert(data.error || "Randevu kaydedilirken bir hata oluştu.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      setAppointments((prev) => [data.data, ...prev]);
+      setFormSubmitted(data.data);
+    } catch (err: any) {
+      alert("Sunucuya bağlanılamadı: " + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  // Randevu Durumunu Veritabanında Güncelleme + E-Posta Tetikleme
   const handleUpdateStatus = async (id: string, newStatus: "onaylandi" | "reddedildi", reason?: string) => {
     const targetApp = appointments.find((a) => a.id === id);
     if (!targetApp) return;
@@ -300,7 +322,26 @@ export default function SchoolAppointmentSystem() {
     setIsSendingMail(true);
 
     try {
-      const res = await fetch("/api/send-email", {
+      // 1. Veritabanında güncelle
+      const dbRes = await fetch("/api/appointments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: id,
+          status: newStatus,
+          rejectionReason: reason || ""
+        }),
+      });
+
+      const dbData = await dbRes.json();
+      if (!dbRes.ok || !dbData.success) {
+        alert("Veritabanı güncellenemedi: " + (dbData.error || "Hata"));
+        setIsSendingMail(false);
+        return;
+      }
+
+      // 2. E-Posta gönder
+      const mailRes = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -315,14 +356,9 @@ export default function SchoolAppointmentSystem() {
         }),
       });
 
-      const data = await res.json();
+      const mailData = await mailRes.json();
 
-      if (!res.ok || !data.success) {
-        alert("E-Posta Gönderilemedi! Hata Detayı: " + (data.error || "Sunucu hatası"));
-        setIsSendingMail(false);
-        return;
-      }
-
+      // UI güncelle
       setAppointments((prev) =>
         prev.map((app) =>
           app.id === id ? { ...app, status: newStatus, rejectionReason: reason || app.rejectionReason } : app
@@ -335,10 +371,15 @@ export default function SchoolAppointmentSystem() {
         );
       }
 
-      setNotificationMsg(`Randevu ${newStatus === "onaylandi" ? "onaylandı" : "reddedildi"} ve ${targetApp.email} adresine e-posta iletildi.`);
+      if (mailRes.ok && mailData.success) {
+        setNotificationMsg(`Randevu veritabanına kaydedildi ve ${targetApp.email} adresine e-posta ulaştı.`);
+      } else {
+        setNotificationMsg(`Randevu kaydedildi ancak mail iletilemedi (${mailData.error || "SMTP hatası"}).`);
+      }
+
       setTimeout(() => setNotificationMsg(null), 5000);
     } catch (err: any) {
-      alert("E-posta gönderilirken bağlantı hatası oluştu: " + err.message);
+      alert("İşlem sırasında bağlantı hatası oluştu: " + err.message);
     } finally {
       setIsSendingMail(false);
     }
@@ -355,9 +396,6 @@ export default function SchoolAppointmentSystem() {
     );
   });
 
-  // =========================================================================
-  // EXCEL ÇIKTISI ALMA (.CSV / Excel Uygun - UTF-8 BOM)
-  // =========================================================================
   const exportToExcel = () => {
     if (filteredAppointments.length === 0) {
       alert("Dışa aktarılacak randevu kaydı bulunamadı.");
@@ -365,20 +403,9 @@ export default function SchoolAppointmentSystem() {
     }
 
     const headers = [
-      "Takip Kodu",
-      "MEB Kurum Kodu",
-      "Kurum / Okul Adı",
-      "Okul Türü",
-      "İl",
-      "İlçe",
-      "Randevu Tarihi",
-      "Seans",
-      "Kişi Sayısı",
-      "Yetkili Öğretmen",
-      "Telefon",
-      "E-Posta",
-      "Durum",
-      "Kayıt Tarihi"
+      "Takip Kodu", "MEB Kurum Kodu", "Kurum / Okul Adı", "Okul Türü",
+      "İl", "İlçe", "Randevu Tarihi", "Seans", "Kişi Sayısı",
+      "Yetkili Öğretmen", "Telefon", "E-Posta", "Durum", "Kayıt Tarihi"
     ];
 
     const rows = filteredAppointments.map((app) => [
@@ -398,7 +425,6 @@ export default function SchoolAppointmentSystem() {
       `"${app.createdAt}"`
     ]);
 
-    // Excel'in Türkçe karakterleri düzgün açması için \uFEFF (UTF-8 BOM) eklenir
     const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map((r) => r.join(";"))].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -411,11 +437,7 @@ export default function SchoolAppointmentSystem() {
     URL.revokeObjectURL(url);
   };
 
-  // =========================================================================
-  // GÜVENLİK VE İDARE ÇİZELGESİ (PDF / YAZDIR)
-  // =========================================================================
   const printSecurityList = () => {
-    // Sadece onaylanan randevuları çizelgeye dökelim
     const approvedList = appointments.filter((a) => a.status === "onaylandi");
 
     if (approvedList.length === 0) {
@@ -887,15 +909,15 @@ export default function SchoolAppointmentSystem() {
                   <div className="pt-2">
                     <button
                       type="submit"
-                      disabled={Boolean(dateRestriction?.isBlocked)}
+                      disabled={Boolean(dateRestriction?.isBlocked) || isSubmitting}
                       className={`w-full py-3.5 px-4 font-semibold text-sm rounded-lg shadow-md flex items-center justify-center gap-2 transition duration-150 ${
-                        dateRestriction?.isBlocked
+                        dateRestriction?.isBlocked || isSubmitting
                           ? "bg-slate-300 text-slate-500 cursor-not-allowed border border-slate-300"
                           : "bg-slate-800 hover:bg-slate-900 text-white cursor-pointer"
                       }`}
                     >
-                      <Send className="w-4 h-4 text-white" />
-                      Randevu Talebini Tamamla
+                      {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <Send className="w-4 h-4 text-white" />}
+                      {isSubmitting ? "Veritabanına Kaydediliyor..." : "Randevu Talebini Tamamla"}
                     </button>
                   </div>
                 </form>
@@ -931,10 +953,11 @@ export default function SchoolAppointmentSystem() {
                 />
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-sky-700 hover:bg-sky-800 text-white font-semibold text-xs rounded-lg transition shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
+                  disabled={isInquiring}
+                  className="px-6 py-2.5 bg-sky-700 hover:bg-sky-800 text-white font-semibold text-xs rounded-lg transition shadow-sm cursor-pointer flex items-center justify-center gap-1.5 disabled:bg-slate-400"
                 >
-                  <Search className="w-4 h-4" />
-                  Sorgula
+                  {isInquiring ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  {isInquiring ? "Aranıyor..." : "Sorgula"}
                 </button>
               </form>
             </div>
@@ -1076,7 +1099,6 @@ export default function SchoolAppointmentSystem() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Başlık, Rol ve Çıktı Alma Çubuğu */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-700 flex items-center justify-center font-bold flex-shrink-0">
@@ -1100,16 +1122,15 @@ export default function SchoolAppointmentSystem() {
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        Ziyaretçi listesini dışa aktarabilir veya güvenlik kapısı için çizelge yazdırabilirsiniz.
+                        Veriler canlı Postgres veritabanından listelenmektedir.
                       </p>
                     </div>
                   </div>
 
-                  {/* EXCEL, YAZDIR VE ÇIKIŞ BUTONLARI */}
                   <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                     <button
                       onClick={exportToExcel}
-                      title="Filtrelenmiş listeyi Excel uyumlu CSV olarak indirir"
+                      title="Listeyi Excel uyumlu CSV olarak indirir"
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold transition cursor-pointer shadow-2xs"
                     >
                       <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
@@ -1118,7 +1139,7 @@ export default function SchoolAppointmentSystem() {
 
                     <button
                       onClick={printSecurityList}
-                      title="Onaylı ziyaretçi listesini resmi kapı güvenlik formatında yazdırır / PDF yapar"
+                      title="Onaylı listeyi güvenlik çizelgesi olarak yazdırır"
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold transition cursor-pointer shadow-2xs"
                     >
                       <Printer className="w-4 h-4 text-sky-600" />
@@ -1194,7 +1215,7 @@ export default function SchoolAppointmentSystem() {
                   </div>
                 </div>
 
-                {/* Randevu Tablosu */}
+                {/* Tablo */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -1210,7 +1231,14 @@ export default function SchoolAppointmentSystem() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredAppointments.length === 0 ? (
+                        {isDataLoading ? (
+                          <tr>
+                            <td colSpan={7} className="text-center py-8 text-slate-400">
+                              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1 text-sky-600" />
+                              Veritabanından yükleniyor...
+                            </td>
+                          </tr>
+                        ) : filteredAppointments.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="text-center py-8 text-slate-400">Kayıt bulunamadı.</td>
                           </tr>
