@@ -148,11 +148,11 @@ export default function SchoolAppointmentSystem() {
   const [isSendingMail, setIsSendingMail] = useState(false);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
 
-  // Veritabanından Randevuları Çekme Fonksiyonu
+  // Veritabanından Randevuları Çekme Fonksiyonu (Önbellek İptal Edildi)
   const fetchAppointments = async () => {
     setIsDataLoading(true);
     try {
-      const res = await fetch("/api/appointments");
+      const res = await fetch("/api/appointments", { cache: "no-store" });
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {
         setAppointments(data.data);
@@ -206,7 +206,7 @@ export default function SchoolAppointmentSystem() {
     }
   };
 
-  // Veritabanından Anlık Sorgulama
+  // Veritabanından Anlık Sorgulama (Önbellek İptal Edildi)
   const handleInquirySearch = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanQuery = inquiryCode.trim().toUpperCase();
@@ -216,7 +216,7 @@ export default function SchoolAppointmentSystem() {
     setInquiryResult(null);
 
     try {
-      const res = await fetch(`/api/inquiry?code=${encodeURIComponent(cleanQuery)}`);
+      const res = await fetch(`/api/inquiry?code=${encodeURIComponent(cleanQuery)}`, { cache: "no-store" });
       const data = await res.json();
 
       if (data.success && data.data) {

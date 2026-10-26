@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 
+// Önbelleği kapat
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export async function GET(req: Request) {
+// ... kodun geri kalanı aynı
+
+
+import { NextResponse } from "next/server";
+import { sql } from "@vercel/postgres";
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
