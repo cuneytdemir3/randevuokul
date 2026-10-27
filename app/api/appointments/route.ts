@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 
-// Next.js'in bu veriyi önbelleğe almasını kesin olarak engeller
+// Önbelleği (cache) iptal eden komutlar
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-export async function GET() {
-// ... kodun geri kalanı aynı
-import { NextResponse } from "next/server";
-import { sql } from "@vercel/postgres";
 
 // 1. Randevuları Listele (Admin Paneli İçin)
 export async function GET() {

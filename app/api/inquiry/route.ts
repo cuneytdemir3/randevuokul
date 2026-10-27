@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 
-// Önbelleği kapat
+// Önbelleği (cache) iptal eden komutlar
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-export async function GET(req: Request) {
-// ... kodun geri kalanı aynı
-
-
-import { NextResponse } from "next/server";
-import { sql } from "@vercel/postgres";
 
 export async function GET(req: Request) {
   try {
